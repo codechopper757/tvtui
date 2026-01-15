@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+import curses
+import json
+import subprocess
+import urllib.request
+import datetime
+import ssl
+import time
+from zoneinfo import ZoneInfo
+from dotenv import load_dotenv
+import os
+from pathlib import Path
+
+LOCAL_TZ = ZoneInfo("America/New_York")
+
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
+HDHR_IP = os.getenv("HDHR_IP")
+JELLYFIN_URL = os.getenv("JELLYFIN_URL")
+JELLYFIN_API_KEY = os.getenv("JELLYFIN_API_KEY")
+
+
+
+# ----------------------------
+# Jellyfin helpers
+# ----------------------------
+
+def fetch_jellyfin_channels():
+    url = f"{JELLYFIN_URL}/LiveTv/Channels?api_key={JELLYFIN_API_KEY}"
+    ctx = ssl._create_unverified_context()
+    try:
+        with urllib.request.urlopen(url, context=ctx, timeout=4) as r:
+            return json.load(r).get("Items", [])
+    except:
+        return []
+
+
+def fetch_all_epg():
+    now = datetime.datetime.utcnow()
+    start = (now - datetime.timedelta(hours=1)).isoformat() + "Z"
+    end = (now + datetime.timedelta(hours=1)).isoformat() + "Z"
+
+    url = (
+        f"{JELLYFIN_URL}/LiveTv/Programs"
+        f"?StartDate={start}&EndDate={end}&Limit=1000"
+        f"&api_key={JELLYFIN_API_KEY}"
+    )
+
+    ctx = ssl._create_unverified_context()
+    try:
+        with urllib.request.urlopen(url, context=ctx, timeout=4) as r:
+            return json.load(r).get("Items", [])
+    except:
+        return []
+
+
+# ----------------------------
+# HDHomeRun helpers
+# ----------------------------
+
+def fetch_channels():
+    url = f"http://{HDHR_IP}/lineup.json"
+    with urllib.request.urlopen(url, timeout=3) as r:
+        return json.load(r)
+
+
+def launch_mpv(channel):
+    url = f"http://{HDHR_IP}:5004/auto/v{channel}"
+
+    curses.def_prog_mode()
+    curses.endwin()
+
+    subprocess.Popen([
+        "mpv",
+        "--cache=yes",
+        "--cache-secs=30",
+        "--no-terminal",
+        "--msg-level=all=no",
+        url
+    ])
+
+    curses.reset_prog_mode()
+    curses.curs_set(0)
+
+
+# ----------------------------
+# UI helpers
+# ----------------------------
+
+def init_colors():
+    curses.start_color()
+    curses.use_default_colors()
+
+    curses.init_pair(1, curses.COLOR_CYAN, -1)     # header
+    curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_CYAN)  # selected
+    curses.init_pair(3, curses.COLOR_GREEN, -1)    # channels
+    curses.init_pair(4, curses.COLOR_YELLOW, -1)   # footer
+    curses.init_pair(5, curses.COLOR_MAGENTA, -1)  # border
+    curses.init_pair(6, curses.COLOR_WHITE, -1)    # info text
+
+    curses.init_pair(7, curses.COLOR_GREEN, -1)    # progress early
+    curses.init_pair(8, curses.COLOR_YELLOW, -1)   # progress mid
+    curses.init_pair(9, curses.COLOR_RED, -1)      # progress late
+
+
+def draw_box(win, color):
+    win.attron(curses.color_pair(color))
+    win.box()
+    win.attroff(curses.color_pair(color))
+
+
+def draw_progress_bar(win, y, x, pct, width):
+    filled = int(width * pct)
+
+    if pct < 0.5:
+        color = curses.color_pair(7)
+    elif pct < 0.85:
+        color = curses.color_pair(8)
+    else:
+        color = curses.color_pair(9)
+
+    win.addstr(y, x, "[")
+
+    win.attron(color)
+    win.addstr(y, x + 1, "█" * filled)
+    win.attroff(color)
+
+    win.addstr(y, x + 1 + filled, "░" * (width - filled))
+    win.addstr(y, x + width + 1, "]")
+
+
+# ----------------------------
+# Main UI
+# ----------------------------
+
+def main(stdscr):
+    curses.curs_set(0)
+    stdscr.keypad(True)
+    init_colors()
+
+    channels = fetch_channels()
+    selected = 0
+    scroll = 0
+
+    epg_cache = []
+    last_epg_fetch = 0
+
+    channel_id_map = {}
+    for c in fetch_jellyfin_channels():
+        if c.get("Number") and c.get("Id"):
+            channel_id_map[c["Number"]] = c["Id"]
+
+    while True:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+
+        if time.time() - last_epg_fetch > 30:
+            epg_cache = fetch_all_epg()
+            last_epg_fetch = time.time()
+
+        title = " HDHomeRun Live TV Dashboard "
+        stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
+        stdscr.addnstr(0, (w - len(title)) // 2, title, w - 2)
+        stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+
+        pane_width = w // 2
+
+        left = stdscr.derwin(h - 2, pane_width, 1, 0)
+        right = stdscr.derwin(h - 2, w - pane_width, 1, pane_width)
+
+        draw_box(left, 5)
+        draw_box(right, 5)
+
+        # Left pane header
+        left.attron(curses.color_pair(1))
+        left.addnstr(0, 2, " Channels ", pane_width - 4)
+        left.attroff(curses.color_pair(1))
+
+        view_height = h - 6
+
+        if selected < scroll:
+            scroll = selected
+        elif selected >= scroll + view_height:
+            scroll = selected - view_height + 1
+
+        for idx in range(scroll, min(scroll + view_height, len(channels))):
+            y = idx - scroll + 1
+            ch = channels[idx]
+            line = f"{ch['GuideNumber']:>6}  {ch['GuideName']}"
+
+            if idx == selected:
+                left.attron(curses.color_pair(2))
+                left.addnstr(y, 2, line.ljust(pane_width - 4), pane_width - 4)
+                left.attroff(curses.color_pair(2))
+            else:
+                left.attron(curses.color_pair(3))
+                left.addnstr(y, 2, line, pane_width - 4)
+                left.attroff(curses.color_pair(3))
+
+        # Right pane header
+        right.attron(curses.color_pair(1))
+        right.addnstr(0, 2, " Now Playing ", w - pane_width - 4)
+        right.attroff(curses.color_pair(1))
+
+        ch = channels[selected]
+        now = datetime.datetime.utcnow()
+
+        program = None
+        cid = channel_id_map.get(ch["GuideNumber"])
+
+        if cid:
+            for p in epg_cache:
+                if p.get("ChannelId") != cid:
+                    continue
+                try:
+                    start = datetime.datetime.fromisoformat(p["StartDate"].replace("Z",""))
+                    end = datetime.datetime.fromisoformat(p["EndDate"].replace("Z",""))
+                except:
+                    continue
+
+                if start <= now < end:
+                    program = p
+                    break
+
+        info_lines = [
+            f"Channel: {ch['GuideNumber']}",
+            f"Name: {ch['GuideName']}",
+            "",
+        ]
+
+        pct = 0
+
+        if program:
+            title_txt = program.get("Name", "Unknown")
+
+            start_dt = datetime.datetime.fromisoformat(program["StartDate"].replace("Z",""))
+            end_dt = datetime.datetime.fromisoformat(program["EndDate"].replace("Z",""))
+
+            local_start = start_dt.replace(tzinfo=datetime.timezone.utc).astimezone(LOCAL_TZ)
+            local_end   = end_dt.replace(tzinfo=datetime.timezone.utc).astimezone(LOCAL_TZ)
+
+
+            total_sec = (end_dt - start_dt).total_seconds()
+            elapsed_sec = (now - start_dt).total_seconds()
+
+            pct = min(max(elapsed_sec / total_sec, 0), 1)
+            remaining_min = int((end_dt - now).total_seconds() // 60)
+
+            info_lines += [
+                "Now Playing:",
+                title_txt,
+                "",
+                f"Ends in: {remaining_min} min",
+                f"Start: {local_start.strftime('%I:%M %p')}",
+                f"End:   {local_end.strftime('%I:%M %p')}",
+            ]
+        else:
+            info_lines += ["Now Playing:", "No data"]
+
+        right.attron(curses.color_pair(6))
+        for i, line in enumerate(info_lines):
+            if i + 2 < h - 3:
+                right.addnstr(i + 2, 2, line, w - pane_width - 4)
+        right.attroff(curses.color_pair(6))
+
+        if program:
+            bar_y = 2 + 3
+            # clear the whole line first
+            right.move(bar_y, 1)
+            right.clrtoeol()
+
+            label = "Progress:"
+            right.addstr(bar_y, 2, label)
+
+            bar_x = 2 + len(label) + 1
+            draw_progress_bar(right, bar_y, bar_x, pct, 22)
+            right.addstr(bar_y, bar_x + 24, f"{int(pct*100)}%")
+
+
+        footer = " ↑↓ Navigate   ENTER Watch   q Quit "
+        stdscr.attron(curses.color_pair(4))
+        stdscr.addnstr(h - 1, 2, footer.ljust(w - 4), w - 4)
+        stdscr.attroff(curses.color_pair(4))
+
+        key = stdscr.getch()
+
+        if key in (ord('q'), 27):
+            break
+        elif key == curses.KEY_UP:
+            selected = max(0, selected - 1)
+        elif key == curses.KEY_DOWN:
+            selected = min(len(channels) - 1, selected + 1)
+        elif key in (10, 13):
+            launch_mpv(channels[selected]["GuideNumber"])
+
+        stdscr.refresh()
+
+
+if __name__ == "__main__":
+    curses.wrapper(main)
