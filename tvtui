@@ -16,6 +16,7 @@ LOCAL_TZ = ZoneInfo("America/New_York")
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
+
 HDHR_IP = os.getenv("HDHR_IP")
 JELLYFIN_URL = os.getenv("JELLYFIN_URL")
 JELLYFIN_API_KEY = os.getenv("JELLYFIN_API_KEY")
@@ -38,12 +39,13 @@ def fetch_jellyfin_channels():
 
 def fetch_all_epg():
     now = datetime.datetime.utcnow()
-    start = (now - datetime.timedelta(hours=1)).isoformat() + "Z"
-    end = (now + datetime.timedelta(hours=1)).isoformat() + "Z"
+    # Wider window to catch long programs
+    start = (now - datetime.timedelta(hours=3)).isoformat() + "Z"
+    end = (now + datetime.timedelta(hours=3)).isoformat() + "Z"
 
     url = (
         f"{JELLYFIN_URL}/LiveTv/Programs"
-        f"?StartDate={start}&EndDate={end}&Limit=1000"
+        f"?StartDate={start}&EndDate={end}&Limit=2000"  # Increased limit
         f"&api_key={JELLYFIN_API_KEY}"
     )
 
@@ -214,8 +216,12 @@ def main(stdscr):
                 if p.get("ChannelId") != cid:
                     continue
                 try:
-                    start = datetime.datetime.fromisoformat(p["StartDate"].replace("Z",""))
-                    end = datetime.datetime.fromisoformat(p["EndDate"].replace("Z",""))
+                    start = datetime.datetime.fromisoformat(
+                        p["StartDate"].replace("Z", "+00:00")
+                    ).replace(tzinfo=None)  # Convert to naive UTC
+                    end = datetime.datetime.fromisoformat(
+                        p["EndDate"].replace("Z", "+00:00")
+                    ).replace(tzinfo=None)
                 except:
                     continue
 
