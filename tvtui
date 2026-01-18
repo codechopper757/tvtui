@@ -386,8 +386,6 @@ def main(stdscr):
 
         if program:
             title_txt = program.get("Name", "Unknown")
-            genres = program.get("Genres", [])
-            genre_color = get_genre_color(genres)
 
             start_dt = datetime.datetime.fromisoformat(program["StartDate"].replace("Z",""))
             end_dt = datetime.datetime.fromisoformat(program["EndDate"].replace("Z",""))
@@ -401,13 +399,9 @@ def main(stdscr):
 
             pct = min(max(elapsed_sec / total_sec, 0), 1)
 
-            # Display genre tags if available
-            genre_display = ", ".join(genres[:3]) if genres else "Unknown"
-
             info_lines += [
                 "Now Playing:",
                 title_txt,
-                f"Genre: {genre_display}",
                 "",
                 f"Ends in: {format_countdown(remaining_sec)}",
                 f"Start: {local_start.strftime('%I:%M %p')}",
@@ -472,11 +466,11 @@ def main(stdscr):
         right.attron(curses.color_pair(6))
         for i, line in enumerate(info_lines):
             if i + 2 < h - 3:
-                # Apply genre color to the program title line
+                # Highlight the program title
                 if program and i == 4:  # "Now Playing:" title line
-                    right.attron(curses.color_pair(genre_color) | curses.A_BOLD)
+                    right.attron(curses.A_BOLD)
                     right.addnstr(i + 2, 2, line, w - pane_width - 4)
-                    right.attroff(curses.color_pair(genre_color) | curses.A_BOLD)
+                    right.attroff(curses.A_BOLD)
                 else:
                     right.addnstr(i + 2, 2, line, w - pane_width - 4)
         right.attroff(curses.color_pair(6))
