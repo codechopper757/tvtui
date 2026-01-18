@@ -40,12 +40,12 @@ def fetch_jellyfin_channels():
 def fetch_all_epg():
     now = datetime.datetime.utcnow()
     # Wider window to catch long programs
-    start = (now - datetime.timedelta(hours=3)).isoformat() + "Z"
-    end = (now + datetime.timedelta(hours=3)).isoformat() + "Z"
+    start = (now - datetime.timedelta(hours=4)).isoformat() + "Z"
+    end = (now + datetime.timedelta(hours=4)).isoformat() + "Z"
 
     url = (
         f"{JELLYFIN_URL}/LiveTv/Programs"
-        f"?StartDate={start}&EndDate={end}&Limit=2000"  # Increased limit
+        f"?StartDate={start}&EndDate={end}&Limit=5000"  # Increased limit
         f"&api_key={JELLYFIN_API_KEY}"
     )
 
@@ -147,19 +147,22 @@ def main(stdscr):
 
     epg_cache = []
     last_epg_fetch = 0
-
     channel_id_map = {}
-    for c in fetch_jellyfin_channels():
-        if c.get("Number") and c.get("Id"):
-            channel_id_map[c["Number"]] = c["Id"]
 
     while True:
         stdscr.clear()
         h, w = stdscr.getmaxyx()
 
+        # Refresh EPG and channel mapping every 30 seconds
         if time.time() - last_epg_fetch > 30:
             epg_cache = fetch_all_epg()
             last_epg_fetch = time.time()
+            
+            # Refresh channel mapping when we refresh EPG
+            channel_id_map = {}
+            for c in fetch_jellyfin_channels():
+                if c.get("Number") and c.get("Id"):
+                    channel_id_map[c["Number"]] = c["Id"]
 
         title = " HDHomeRun Live TV Dashboard "
         stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
