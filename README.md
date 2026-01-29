@@ -1,9 +1,10 @@
-# tvtui 📺
+# tvtui 
 
 A terminal-based Live TV dashboard for HDHomeRun + Jellyfin, powered by `curses` and `mpv`.
 
 Browse channels, see what’s currently playing, view progress in real time, and launch streams instantly — all from your terminal.
 
+- Disclaimer: A lot of AI help in making this project. 
 ---
 
 ## Features
