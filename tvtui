@@ -15,7 +15,8 @@ CURRENT_CHANNEL = None
 LAST_CHANNEL = None
 
 
-LOCAL_TZ = ZoneInfo("America/New_York")
+LOCAL_TZ = ZoneInfo(os.getenv("LOCAL_TZ", "America/New_York"))
+
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -87,9 +88,10 @@ def launch_mpv(channel):
     if MPV_PROCESS and MPV_PROCESS.poll() is None:
         MPV_PROCESS.terminate()
         try:
-            MPV_PROCESS.wait(timeout=2)
+            MPV_PROCESS.wait(timeout=3)
         except:
             MPV_PROCESS.kill()
+
 
     MPV_PROCESS = subprocess.Popen([
         "mpv",
@@ -97,6 +99,7 @@ def launch_mpv(channel):
         "--cache-secs=30",
         "--no-terminal",
         "--msg-level=all=no",
+        "--autofit=75%x75%",
         "--save-position-on-quit",
         url
     ])

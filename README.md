@@ -18,6 +18,7 @@ Browse channels, see what’s currently playing, view progress in real time, and
 - No transcoding required
 - Works great in tmux
 - Secrets/config stored in `.env`
+- Last channel recall (via keypress 'b')
 
 ---
 
@@ -53,13 +54,20 @@ cd tvtui
 ```bash
 cp sample.env .env
 ```
-### Edit .env
+### Edit `.env`
 
 ```bash
-HDHR_IP=<your HDHomerun IP>
+HDHR_IP=<your HDHomeRun IP>
 JELLYFIN_URL=<Jellyfin URL:Port>
 JELLYFIN_API_KEY=your_api_key_here
+LOCAL_TZ=America/New_York
 ```
+
+Set `LOCAL_TZ` to your local timezone (for example:
+`America/New_York`, `Europe/London`, `America/Chicago`, etc.).
+
+If `LOCAL_TZ` is omitted, it defaults to `America/New_York`.
+
 
 ### Make executable
 
