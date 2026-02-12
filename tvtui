@@ -96,7 +96,7 @@ def launch_mpv(channel):
     MPV_PROCESS = subprocess.Popen([
         "mpv",
         "--cache=yes",
-        "--cache-secs=30",
+        "--cache-secs=600",
         "--no-terminal",
         "--msg-level=all=no",
         "--autofit=75%x75%",
