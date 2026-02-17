@@ -20,6 +20,11 @@ Browse channels, see what’s currently playing, view progress in real time, and
 - Secrets/config stored in `.env`
 - Last channel recall (via keypress 'b')
 
+## Plans and Dreams
+ - Eliminating the need to rely on Jellyfin for EPG
+   - Use the SchedulesDirect API instead.
+   - It's a pipe dream, but we'll see!
+
 ---
 
 ##  Screenshot
