@@ -10,13 +10,8 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import os
 from pathlib import Path
-MPV_PROCESS = None
-CURRENT_CHANNEL = None
-LAST_CHANNEL = None
 
-
-LOCAL_TZ = ZoneInfo(os.getenv("LOCAL_TZ", "America/New_York"))
-
+LOCAL_TZ = ZoneInfo("America/New_York")
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -71,32 +66,25 @@ def fetch_channels():
     with urllib.request.urlopen(url, timeout=3) as r:
         return json.load(r)
 
-def launch_mpv(channel):
-    global MPV_PROCESS, CURRENT_CHANNEL, LAST_CHANNEL
 
+def launch_mpv(channel):
+    """Launch mpv for a channel, killing any existing mpv instances first"""
     url = f"http://{HDHR_IP}:5004/auto/v{channel}"
+    
+    # Kill all existing mpv instances
+    try:
+        subprocess.run(["pkill", "-9", "mpv"], stderr=subprocess.DEVNULL)
+        time.sleep(0.2)  # Brief pause to ensure process is killed
+    except:
+        pass
 
     curses.def_prog_mode()
     curses.endwin()
 
-    # Update channel history
-    if CURRENT_CHANNEL is not None and CURRENT_CHANNEL != channel:
-        LAST_CHANNEL = CURRENT_CHANNEL
-    CURRENT_CHANNEL = channel
-
-    # Kill previous mpv if running
-    if MPV_PROCESS and MPV_PROCESS.poll() is None:
-        MPV_PROCESS.terminate()
-        try:
-            MPV_PROCESS.wait(timeout=3)
-        except:
-            MPV_PROCESS.kill()
-
-
-    MPV_PROCESS = subprocess.Popen([
+    subprocess.Popen([
         "mpv",
         "--cache=yes",
-        "--cache-secs=600",
+        "--cache-secs=30",
         "--no-terminal",
         "--msg-level=all=no",
         "--autofit=75%x75%",
@@ -106,8 +94,6 @@ def launch_mpv(channel):
 
     curses.reset_prog_mode()
     curses.curs_set(0)
-
-
 
 
 # ----------------------------
@@ -444,6 +430,7 @@ def main(stdscr):
 
         if program:
             title_txt = program.get("Name", "Unknown")
+            episode_title = program.get("EpisodeTitle", "")
 
             start_dt = datetime.datetime.fromisoformat(program["StartDate"].replace("Z",""))
             end_dt = datetime.datetime.fromisoformat(program["EndDate"].replace("Z",""))
@@ -465,6 +452,11 @@ def main(stdscr):
                 f"Start: {local_start.strftime('%I:%M %p')}",
                 f"End:   {local_end.strftime('%I:%M %p')}",
             ]
+            
+            # Add episode title if available
+            if episode_title:
+                info_lines.append("")
+                info_lines.append(f"Episode: {episode_title}")
             
             # Mini Timeline at the bottom with visual tree
             prev_prog = get_previous_program(epg_cache, cid, start_dt)
@@ -501,12 +493,15 @@ def main(stdscr):
                 if upcoming:
                     next_prog = upcoming[0]
                     next_name = truncate_text(next_prog.get("Name", ""), 25)
+                    next_episode = next_prog.get("EpisodeTitle", "")
                     next_start = datetime.datetime.fromisoformat(
                         next_prog["StartDate"].replace("Z", "+00:00")
                     ).replace(tzinfo=None)
                     next_local_start = next_start.replace(tzinfo=datetime.timezone.utc).astimezone(LOCAL_TZ)
                     timeline_lines.append(("  └─► Up Next:", 19))
                     timeline_lines.append((f"     {next_name}", 19))
+                    if next_episode:
+                        timeline_lines.append((f"     Episode: {truncate_text(next_episode, 20)}", 19))
                     timeline_lines.append((f"     Starts: {next_local_start.strftime('%I:%M %p')}", 19))
                 
                 # Add colored timeline lines to info_lines as tuples
@@ -519,12 +514,19 @@ def main(stdscr):
                 info_lines.append("")
                 info_lines.append("Coming Up Later:")
                 for i, up in enumerate(upcoming[1:], start=2):  # Skip first (already in timeline)
-                    up_title = truncate_text(up.get("Name", "Unknown"), w - pane_width - 10)
+                    up_title = up.get("Name", "Unknown")
+                    up_episode = up.get("EpisodeTitle", "")
                     up_start = datetime.datetime.fromisoformat(
                         up["StartDate"].replace("Z", "+00:00")
                     ).replace(tzinfo=None)
                     up_local = up_start.replace(tzinfo=datetime.timezone.utc).astimezone(LOCAL_TZ)
-                    info_lines.append(f"  {up_local.strftime('%I:%M %p')} - {up_title}")
+                    
+                    # Format: time - show title (episode if available)
+                    if up_episode:
+                        display = f"{up_local.strftime('%I:%M %p')} - {truncate_text(up_title, 15)}: {truncate_text(up_episode, 15)}"
+                    else:
+                        display = f"{up_local.strftime('%I:%M %p')} - {truncate_text(up_title, w - pane_width - 10)}"
+                    info_lines.append(f"  {display}")
         else:
             info_lines += ["Now Playing:", "No data"]
 
@@ -559,8 +561,8 @@ def main(stdscr):
             draw_progress_bar(right, bar_y, bar_x, pct, 22)
             right.addstr(bar_y, bar_x + 24, f"{int(pct*100)}%")
 
-        footer = " ↑↓ Navigate   ENTER Watch   b Last Channel   / Search   ESC Clear   q Quit "
 
+        footer = " ↑↓ Navigate   ENTER Watch   / Search   ESC Clear   q Quit "
         stdscr.attron(curses.color_pair(4))
         stdscr.addnstr(h - 1, 2, footer.ljust(w - 4), w - 4)
         stdscr.attroff(curses.color_pair(4))
@@ -626,20 +628,6 @@ def main(stdscr):
             selected = min(len(display_channels) - 1, selected + 1)
         elif key in (10, 13):
             launch_mpv(display_channels[selected]["GuideNumber"])
-        elif key == ord('b') and not search_mode:
-            if LAST_CHANNEL is not None:
-                # Find last channel in full channel list
-                for i, ch in enumerate(channels):
-                    if ch["GuideNumber"] == LAST_CHANNEL:
-                        # update selection in current display list if visible
-                        for j, dch in enumerate(display_channels):
-                            if dch["GuideNumber"] == LAST_CHANNEL:
-                                selected = j
-                                break
-
-                        launch_mpv(LAST_CHANNEL)
-                        break
-
 
         stdscr.refresh()
 
